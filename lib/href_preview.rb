@@ -12,4 +12,23 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+
+require 'addressable/uri'
+require 'faraday'
+require 'faraday_middleware'
 require 'href_preview/version'
+require 'href_preview/preview'
+require 'href_preview/faraday_common_request'
+
+module HRefPreview
+  DEFAULT_CONNECTION = Faraday.new do |connection|
+    connection.use FaradayMiddleware::FollowRedirects, {:limit => 5}
+    connection.use Faraday::CommonRequest
+    connection.adapter :httpclient
+  end
+
+  def self.open(uri, connection=DEFAULT_CONNECTION)
+    response = connection.get(Addressable::URI.parse(uri))
+    return HRefPreview::Preview.new(response, connection)
+  end
+end

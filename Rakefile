@@ -5,11 +5,11 @@ $:.uniq!
 require 'rubygems'
 require 'rake'
 
-require File.join(File.dirname(__FILE__), 'lib/href-preview', 'version')
+require File.join(File.dirname(__FILE__), 'lib/href_preview', 'version')
 
 PKG_DISPLAY_NAME   = 'Href Preview'
 PKG_NAME           = PKG_DISPLAY_NAME.downcase
-PKG_VERSION        = Href Preview::VERSION::STRING
+PKG_VERSION        = HRefPreview::VERSION::STRING
 PKG_FILE_NAME      = "#{PKG_NAME}-#{PKG_VERSION}"
 
 RELEASE_NAME       = "REL #{PKG_VERSION}"
@@ -31,7 +31,7 @@ PKG_FILES = FileList[
 
 RCOV_ENABLED = (RUBY_PLATFORM != 'java' && RUBY_VERSION =~ /^1\.8/)
 if RCOV_ENABLED
-  task :default => 'spec:verify'
+  task :default => 'spec:rcov'
 else
   task :default => 'spec'
 end

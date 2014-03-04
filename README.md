@@ -9,15 +9,30 @@
 
 # Description
 
-A simple library for efficiently previewing links.
+A comprehensive library for efficiently previewing links.
 
 # Features
 
-* A feature list goes here.
+Capable of detecting:
+* OpenGraph metadata
+* Twitter metadata
+* Microdata metadata
+* Assorted microformat metadata
+* RDFa metadata
+* rel="canonical" links
 
 # Example Usage
 
-    # Some code goes here.
+    require 'href_preview'
+    p = HRefPreview.open('http://nyti.ms/1c1zNtX')
+    p.title
+    # => "A Successor to Sagan Reboots ‘Cosmos’"
+    p.description
+    # =>
+    p.article_html
+    p.article_text
+    p.published
+    p.canonical_uri
 
 # Install
 
