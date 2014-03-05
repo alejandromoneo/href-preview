@@ -17,6 +17,8 @@ require 'mime/types'
 require 'faraday'
 require 'nokogiri'
 require 'sanitize'
+require 'fastimage'
+require 'href_preview/fastimage_uri'
 require 'time'
 
 module HRefPreview
@@ -40,7 +42,11 @@ module HRefPreview
         MIME::Types[response.headers['Content-Type']].first or
         begin
           node = dom.xpath("//*/meta[@http-equiv='Content-Type']/@content").first
-          MIME::Types[node.value].first if node
+          MIME::Types[node.value].first if node && node.value
+        end or
+        begin
+          node = dom.xpath("//*/meta[@name='dc.format']/@content").first
+          MIME::Types[node.value].first if node && node.value
         end
       end)
     end
@@ -62,6 +68,26 @@ module HRefPreview
           node.value if node
         end
         charset.strip if charset
+      end)
+    end
+
+    ##
+    # @returns [String] The two-letter language code for the content.
+    def language
+      @language ||= (begin
+        language = response.headers['Content-Language'] or
+        begin
+          node = dom.xpath("//*/meta[@http-equiv='Content-Language']/@content").first
+          node.value if node
+        end or
+        begin
+          node = dom.xpath("//*/meta[@name='dc.language']/@content").first
+          node.value if node
+        end
+        if language
+          # Strip the irrelevant '-US' from 'en-US' if it appears.
+          language[/^([a-z]{2})/, 1].to_s.downcase
+        end
       end)
     end
 
@@ -96,10 +122,18 @@ module HRefPreview
             node.value if node
           end or
           begin
+            node = dom.xpath("//*/meta[@name='dc.title']/@content").first
+            node.value if node
+          end or
+          begin
             if article_node
               node = article_node.xpath("*[@itemprop='headline']").first
               node.text if node
             end
+          end or
+          begin
+            node = dom.xpath("//*/*[(self::h1 or self::h2) and @itemprop='headline']").first
+            node.text if node
           end or
           begin
             node = dom.xpath("//*/head/title").first
@@ -125,146 +159,238 @@ module HRefPreview
       end)
     end
 
-    def snippet
-    end
-
-    def tags
+    def description
+      @description ||= (begin
+        if is_html?
+          description = begin
+            node = dom.xpath("//*/meta[@property='og:description']/@content").first
+            node.value if node
+          end or
+          begin
+            node = dom.xpath("//*/meta[@name='dc.description']/@content").first
+            node.value if node
+          end or
+          begin
+            node = dom.xpath("//*/meta[@itemprop='description']/@content").first
+            node.value if node
+          end or
+          begin
+            node = dom.xpath("//*/meta[@name='description']/@content").first
+            node.value if node
+          end or
+          begin
+            node = dom.xpath("//*/meta[@name='dcterms.abstract']/@content").first
+            node.value if node
+          end or
+          begin
+            # Unlikely to ever happen
+            node = dom.xpath("//*/meta[@name='twitter:description']/@content").first
+            node.value if node
+          end or
+          begin
+            # Unlikely to ever happen
+            node = dom.xpath("//*/meta[@name='sailthru.description']/@content").first
+            node.value if node
+          end
+          if description
+            description.gsub!(/&nbsp;/, ' ')
+            description.strip
+          end
+        end
+      end)
     end
 
     def canonical_uri
-      @canonical_uri ||= (begin
-        node = dom.xpath("//*/link[@rel='canonical']/@href").first
-        Addressable::URI.parse(node.value) if node && node.value && node.value != ''
-      end or
-      begin
-        node = dom.xpath("//*/meta[@property='og:url']/@content").first
-        Addressable::URI.parse(node.value) if node && node.value && node.value != ''
+      @canonical_uri ||= (if is_html?
+        begin
+          node = dom.xpath("//*/link[@rel='canonical']/@href").first
+          Addressable::URI.parse(node.value) if node && node.value && node.value != ''
+        end or
+        begin
+          node = dom.xpath("//*/meta[@property='og:url']/@content").first
+          Addressable::URI.parse(node.value) if node && node.value && node.value != ''
+        end or
+        Addressable::URI.parse(response.env.url.to_s)
+      else
+        Addressable::URI.parse(response.env.url.to_s)
       end)
     end
 
     def shortlink_uri
-      @shortlink_uri ||= (begin
-        node = dom.xpath("//*/link[@rel='shortlink']/@href").first
-        Addressable::URI.parse(node.value) if node && node.value && node.value != ''
-      end or
-      begin
-        node = dom.xpath("//*[@class='story-short-url']/a/@href").first
-        Addressable::URI.parse(node.value) if node && node.value && node.value != ''
+      @shortlink_uri ||= (if is_html?
+        begin
+          node = dom.xpath("//*/link[@rel='shortlink']/@href").first
+          Addressable::URI.parse(node.value) if node && node.value && node.value != ''
+        end or
+        begin
+          node = dom.xpath("//*[@class='story-short-url']/a/@href").first
+          Addressable::URI.parse(node.value) if node && node.value && node.value != ''
+        end
       end)
     end
 
     def image_uri
-      @image_uri ||= (
-        if article_node
-          node = article_node.xpath("meta[@itemprop='thumbnailurl']/@content").first
-          Addressable::URI.parse(node.value) if node && node.value && node.value != ''
+      @image_uri ||= (images.first ? Addressable::URI.parse(images.first.uri) : nil)
+    end
+
+    def images
+      @images ||= (begin
+        image_uris = []
+        if is_html?
+          nodes = dom.xpath("//*/meta[@property='og:image']/@content")
+          nodes.each do |node|
+            if node && node.value && node.value != ''
+              image_uris << Addressable::URI.parse(node.value)
+            end
+          end
+          if article_node
+            nodes = article_node.xpath("meta[@itemprop='thumbnailurl']/@content")
+            nodes.each do |node|
+              if node && node.value && node.value != ''
+                image_uris << Addressable::URI.parse(node.value)
+              end
+            end
+          end
+        elsif mime_type && mime_type.media_type == 'image'
+          image_uris << canonical_uri
         end
-      )
+        image_uris.uniq.map { |uri| FastImage.new(uri, :timeout => 0.5) }
+      end)
     end
 
     def item_type
-      @item_type ||= (begin
-        node = dom.xpath("//*/meta[@property='og:type']/@content").first
-        node.value if node
-      end or
-      if dom.xpath("//*[@itemtype='http://schema.org/NewsArticle']").first != nil
-        'article'
+      @item_type ||= (if is_html?
+        begin
+          node = dom.xpath("//*/meta[@property='og:type']/@content").first
+          node.value if node
+        end or
+        if dom.xpath("//*[@itemtype='http://schema.org/NewsArticle']").first != nil
+          'article'
+        end
       end)
     end
 
     def site_name
-      @twitter ||= (begin
-        node = dom.xpath("//*/meta[@property='og:site_name']/@content").first
-        node.value if node
+      @site_name ||= (if is_html?
+        begin
+          node = dom.xpath("//*/meta[@property='og:site_name']/@content").first
+          node.value if node
+        end or
+        begin
+          node = dom.xpath("//*/meta[@name='dc.publisher']/@content").first
+          node.value if node
+        end
       end)
     end
 
     ##
     # @return [String] The Twitter handle used by the site.
     def twitter
-      @twitter ||= (begin
-        node = dom.xpath("//*/meta[@name='twitter:site']/@content").first
-        node.value if node && node.value && node.value =~ /^@/
+      @twitter ||= (if is_html?
+        begin
+          node = dom.xpath("//*/meta[@name='twitter:site']/@content").first
+          node.value if node && node.value && node.value =~ /^@/
+        end
       end)
     end
 
     def article_node
-      @article_node ||= (begin
-        nodes = dom.xpath("/html[@itemtype='http://schema.org/NewsArticle']//article[@id='story']")
-        nodes.first if nodes.size == 1
-      end or
-      begin
-        nodes = dom.xpath("//*/*[@itemtype='http://schema.org/NewsArticle']")
-        nodes.first if nodes.size == 1
-      end or
-      begin
-        nodes = dom.xpath("//*/*[@itemprop='articleBody']")
-        nodes.first if nodes.size == 1
-      end or
-      begin
-        nodes = dom.css("article div.article-entry")
-        nodes.first if nodes.size == 1
-      end or
-      begin
-        nodes = dom.css("article.post div.entry-content")
-        nodes.first if nodes.size == 1
-      end or
-      begin
-        nodes = dom.css(".pg_story div#leftcolumn div.body")
-        nodes.first if nodes.size == 1
+      @article_node ||= (if is_html?
+        begin
+          nodes = dom.xpath("/html[@itemtype='http://schema.org/NewsArticle']//article[@id='story']")
+          nodes.first if nodes.size == 1
+        end or
+        begin
+          nodes = dom.xpath("//*/*[@itemtype='http://schema.org/NewsArticle']")
+          nodes.first if nodes.size == 1
+        end or
+        begin
+          nodes = dom.xpath("//*/*[@itemprop='articleBody']")
+          nodes.first if nodes.size == 1
+        end or
+        begin
+          nodes = dom.css("article div.article-entry")
+          nodes.first if nodes.size == 1
+        end or
+        begin
+          nodes = dom.css("article.post div.entry-content")
+          nodes.first if nodes.size == 1
+        end or
+        begin
+          nodes = dom.css("div.post div.postBody")
+          nodes.first if nodes.size == 1
+        end or
+        begin
+          nodes = dom.css(".pg_story div#leftcolumn div.body")
+          nodes.first if nodes.size == 1
+        end
       end)
     end
 
-    def article_html
-      @article_html ||= (begin
-        html = nil
-        if article_node
-          html = article_node.children.reject do |child|
-            next unless child.attribute('class')
-            [
-              'related_links_inline'
-            ].include?(child.attribute('class').value)
-          end.map(&:to_s).join('')
-        end
-        if html
-          html = Sanitize.clean(html, Sanitize::Config::RELAXED.merge(
-            :remove_contents => true
-          ))
-          html.gsub!("\r\n", "\n")
-          html.gsub!("\t", "  ")
-          html.gsub!(/ *\n */, "\n")
-          html.gsub!(/\n\n+/, "\n\n")
-          html.gsub!(/<p>\n+/, "<p>\n")
-          html.gsub!(/\n+<\/p>/, "\n</p>")
-          html.gsub!(/<\/p>\n+/, "</p>\n")
-          html.strip!
+    options = Sanitize::Config::RELAXED.merge(
+      :remove_contents => true,
+      :elements => %w[
+        a abbr address b bdi bdo blockquote br caption cite code col colgroup dd
+        del dfn dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hgroup hr i img ins
+        kbd li mark ol p pre q rp rt ruby s samp small span strike strong sub
+        summary sup table tbody td tfoot th thead time tr u ul var wbr
+      ]
+    )
+    options[:attributes]['span'] = []
+    SANITIZE_OPTIONS = options
 
-          # Excise empty elements
-          reparsed = Nokogiri::HTML.fragment(html)
-          excise_empty = lambda do |node|
-            if node.respond_to?(:name) && node.name == "script"
-              node.unlink
-            else
-              node.children.each do |node|
-                excise_empty.call(node) if node.element?
-              end
-              if node.respond_to?(:attribute_nodes) && node.respond_to?(:text)
-                if node.attribute_nodes.size == 0 && node.text.to_s.strip =~ /^\s*$/ &&
-                    node.children.all? { |child| child.text? }
-                  node.unlink
+    def article_html
+      @article_html ||= (if is_html?
+        begin
+          html = nil
+          if article_node
+            html = article_node.children.reject do |child|
+              next unless child.attribute('class')
+              [
+                'related_links_inline',
+                'inline-share-btn-label',
+                'inline-share-btn'
+              ].include?(child.attribute('class').value)
+            end.map(&:to_s).join('')
+          end
+          if html
+            html = Sanitize.clean(html, SANITIZE_OPTIONS)
+            html.gsub!("\r\n", "\n")
+            html.gsub!("\t", "  ")
+            html.gsub!(/ *\n */, "\n")
+            html.gsub!(/\n\n+/, "\n\n")
+            html.gsub!(/<p>\n+/, "<p>\n")
+            html.gsub!(/\n+<\/p>/, "\n</p>")
+            html.gsub!(/<\/p>\n+/, "</p>\n")
+            html.strip!
+
+            # Excise empty elements
+            reparsed = Nokogiri::HTML.fragment(html)
+            excise_empty = lambda do |node|
+              if node.respond_to?(:name) && node.name == "script"
+                node.unlink
+              else
+                node.children.each do |node|
+                  excise_empty.call(node) if node.element?
+                end
+                if node.respond_to?(:attribute_nodes) && node.respond_to?(:text)
+                  if node.attribute_nodes.size == 0 && node.text.to_s.strip =~ /^\s*$/ &&
+                      node.children.all? { |child| child.text? }
+                    node.unlink
+                  end
                 end
               end
             end
+            excise_empty.call(reparsed)
+            html = reparsed.to_s
           end
-          excise_empty.call(reparsed)
-          html = reparsed.to_s
+          html
         end
-        html
       end)
     end
 
     def article_text
-      @article_text ||= Sanitize.clean(article_html)
+      @article_text ||= is_html? ? Sanitize.clean(article_html) : nil
     end
 
     def published
@@ -280,6 +406,16 @@ module HRefPreview
         end or
         begin
           node = dom.xpath("//*/meta[@itemprop='datepublished']/@content").first
+          Time.parse(node.value) if node && node.value && node.value != ''
+        end or
+        begin
+          node = dom.xpath("//*/meta[@name='dcterms.created']/@content").first
+          Time.parse(node.value) if node && node.value && node.value != ''
+        end or
+        begin
+          # Only a date, not a time, and not particularly specific,
+          # so this is a fallback at best.
+          node = dom.xpath("//*/meta[@name='dc.date']/@content").first
           Time.parse(node.value) if node && node.value && node.value != ''
         end
       end)
@@ -298,6 +434,10 @@ module HRefPreview
         end or
         begin
           node = dom.xpath("meta[@itemprop='datemodified']/@content").first
+          Time.parse(node.value) if node && node.value && node.value != ''
+        end or
+        begin
+          node = dom.xpath("//*/meta[@name='dcterms.modified']/@content").first
           Time.parse(node.value) if node && node.value && node.value != ''
         end
       end)
