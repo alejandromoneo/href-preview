@@ -7,8 +7,8 @@ require 'rake'
 
 require File.join(File.dirname(__FILE__), 'lib/href_preview', 'version')
 
-PKG_DISPLAY_NAME   = 'Href Preview'
-PKG_NAME           = PKG_DISPLAY_NAME.downcase
+PKG_DISPLAY_NAME   = 'HREF Preview'
+PKG_NAME           = PKG_DISPLAY_NAME.gsub(/ /, '-').downcase
 PKG_VERSION        = HRefPreview::VERSION::STRING
 PKG_FILE_NAME      = "#{PKG_NAME}-#{PKG_VERSION}"
 
