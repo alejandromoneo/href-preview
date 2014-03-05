@@ -23,7 +23,7 @@ namespace :gem do
     s.add_development_dependency("launchy", ">= 0.3.2")
     s.add_development_dependency("vcr", ">= 2.6.0")
 
-    s.add_runtime_dependency("addressable", ">= 2.5.0")
+    s.add_runtime_dependency("addressable", ">= 2.3.0")
     s.add_runtime_dependency("faraday", ">= 0.8.0")
     s.add_runtime_dependency("faraday_middleware", ">= 0.8.0")
     s.add_runtime_dependency("sanitize", ">= 2.0.0")
