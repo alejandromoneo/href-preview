@@ -1,3 +1,8 @@
+== 0.1.3
+
+* dropping httpclient dependency and defaulting to Net::HTTP adapter
+* relaxed mime-type dependency
+
 == 0.1.2
 
 * relaxed mime-type dependency

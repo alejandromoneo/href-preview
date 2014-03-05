@@ -24,7 +24,7 @@ module HRefPreview
   DEFAULT_CONNECTION = Faraday.new do |connection|
     connection.use FaradayMiddleware::FollowRedirects, {:limit => 5}
     connection.use Faraday::CommonRequest
-    connection.adapter :httpclient
+    connection.adapter :net_http
   end
 
   def self.open(uri, connection=DEFAULT_CONNECTION)
