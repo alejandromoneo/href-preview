@@ -1,3 +1,7 @@
+== 0.1.2
+
+* relaxed mime-type dependency
+
 == 0.1.1
 
 * fixed broken dependency
