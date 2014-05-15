@@ -7,6 +7,8 @@
   <dt>License</dt><dd>Apache 2.0</dd>
 </dl>
 
+[![Gittip Donate](http://img.shields.io/gittip/sporkmonger.png)](https://www.gittip.com/sporkmonger/ "Support Open Source Development w/ Gittip")
+
 # Description
 
 A comprehensive library for efficiently previewing links.
