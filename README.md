@@ -23,6 +23,8 @@ Capable of detecting:
 * RDFa metadata
 * rel="canonical" links
 
+Automatically follows redirects and shortened URLs.
+
 # Example Usage
 
     require 'href_preview'
